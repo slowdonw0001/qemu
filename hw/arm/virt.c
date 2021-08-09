@@ -85,6 +85,7 @@
 #include "hw/virtio/virtio-iommu.h"
 #include "hw/char/pl011.h"
 #include "qemu/guest-random.h"
+#include "hw/i2c/i2c.h"
 
 static GlobalProperty arm_virt_compat[] = {
     { TYPE_VIRTIO_IOMMU_PCI, "aw-bits", "48" },
@@ -171,6 +172,7 @@ static const MemMapEntry base_memmap[] = {
     /* This redistributor space allows up to 2*64kB*123 CPUs */
     [VIRT_GIC_REDIST] =         { 0x080A0000, 0x00F60000 },
     [VIRT_UART0] =              { 0x09000000, 0x00001000 },
+    [VIRT_I2C_0] =              { 0x09002000, 0x00001000 },
     [VIRT_RTC] =                { 0x09010000, 0x00001000 },
     [VIRT_FW_CFG] =             { 0x09020000, 0x00000018 },
     [VIRT_GPIO] =               { 0x09030000, 0x00001000 },
@@ -223,6 +225,7 @@ static const int a15irqmap[] = {
     [VIRT_GPIO] = 7,
     [VIRT_UART1] = 8,
     [VIRT_ACPI_GED] = 9,
+    [VIRT_I2C_0] = 11,
     [VIRT_MMIO] = 16, /* ...to 16 + NUM_VIRTIO_TRANSPORTS - 1 */
     [VIRT_GIC_V2M] = 48, /* ...to 48 + NUM_GICV2M_SPIS - 1 */
     [VIRT_SMMU] = 74,    /* ...to 74 + NUM_SMMU_IRQS - 1 */
@@ -2092,6 +2095,23 @@ static void virt_cpu_post_init(VirtMachineState *vms, MemoryRegion *sysmem)
     }
 }
 
+static void create_i2c0(const VirtMachineState *vms,
+                        MemoryRegion *mem)
+{
+    int i2c = VIRT_I2C_0;
+    hwaddr base = vms->memmap[i2c].base;
+    int irq = vms->irqmap[i2c];
+
+    DeviceState *dev = qdev_new("cdns.i2c-r1p10");
+    SysBusDevice *s = SYS_BUS_DEVICE(dev);
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    memory_region_add_subregion(mem, base,
+                                sysbus_mmio_get_region(s, 0));
+    sysbus_connect_irq(s, 0, qdev_get_gpio_in(vms->gic, irq));
+
+    i2c_slave_create_simple((I2CBus *)qdev_get_child_bus(dev, "i2c"), "ds1338", 0x68);
+}
+
 static void machvirt_init(MachineState *machine)
 {
     VirtMachineState *vms = VIRT_MACHINE(machine);
@@ -2386,6 +2406,7 @@ static void machvirt_init(MachineState *machine)
     if (vms->secure) {
         create_uart(vms, VIRT_UART1, secure_sysmem, serial_hd(1), true);
     }
+    create_i2c0(vms, sysmem);
 
     if (vms->secure) {
         create_secure_ram(vms, secure_sysmem, secure_tag_sysmem);
