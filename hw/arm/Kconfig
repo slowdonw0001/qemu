@@ -38,6 +38,7 @@ config ARM_VIRT
     select ACPI_CXL
     select ACPI_HMAT
     select CADENCE_I2C
+    select CADENCE_SDHCI
 
 config CUBIEBOARD
     bool
