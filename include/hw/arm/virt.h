@@ -78,6 +78,7 @@ enum {
     VIRT_PVTIME,
     VIRT_UART_1,
     VIRT_I2C_0,
+    VIRT_EMMC,
     VIRT_LOWMEMMAP_LAST,
 };
 

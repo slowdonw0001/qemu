@@ -85,6 +85,7 @@
 #include "hw/char/pl011.h"
 #include "qemu/guest-random.h"
 #include "hw/i2c/i2c.h"
+#include "hw/sd/cadence_sdhci.h"
 
 static GlobalProperty arm_virt_compat[] = {
     { TYPE_VIRTIO_IOMMU_PCI, "aw-bits", "48" },
@@ -180,6 +181,7 @@ static const MemMapEntry base_memmap[] = {
     [VIRT_PVTIME] =             { 0x090a0000, 0x00010000 },
     [VIRT_SECURE_GPIO] =        { 0x090b0000, 0x00001000 },
     [VIRT_MMIO] =               { 0x0a000000, 0x00000200 },
+    [VIRT_EMMC] =               { 0x0a010000, 0x00000300 },
     /* ...repeating for a total of NUM_VIRTIO_TRANSPORTS, each of that size */
     [VIRT_PLATFORM_BUS] =       { 0x0c000000, 0x02000000 },
     [VIRT_SECURE_MEM] =         { 0x0e000000, 0x01000000 },
@@ -223,6 +225,7 @@ static const int a15irqmap[] = {
     [VIRT_ACPI_GED] = 9,
     [VIRT_UART_1] = 10,
     [VIRT_I2C_0] = 11,
+    [VIRT_EMMC] = 12,
     [VIRT_MMIO] = 16, /* ...to 16 + NUM_VIRTIO_TRANSPORTS - 1 */
     [VIRT_GIC_V2M] = 48, /* ...to 48 + NUM_GICV2M_SPIS - 1 */
     [VIRT_SMMU] = 74,    /* ...to 74 + NUM_SMMU_IRQS - 1 */
@@ -2060,6 +2063,45 @@ static void create_i2c0(const VirtMachineState *vms,
     i2c_slave_create_simple((I2CBus *)qdev_get_child_bus(dev, "i2c"), "ds1338", 0x68);
 }
 
+
+#define SDHCI_CAPABILITIES  0x280737ec6481 /* Datasheet: UG1085 (v1.7) */
+static void create_emmc(const VirtMachineState *vms,
+                        MemoryRegion *mem)
+{
+    int emmc = VIRT_EMMC;
+    hwaddr base = vms->memmap[emmc].base;
+    int irq = vms->irqmap[emmc];
+    DriveInfo *dinfo = drive_get(IF_SD, 0, 0);
+
+    DeviceState *dev = qdev_new(TYPE_CADENCE_SDHCI);
+    SysBusDevice *s = SYS_BUS_DEVICE(dev);
+    CadenceSDHCIState *sdhci = CADENCE_SDHCI(dev);
+
+    if (!object_property_set_uint(OBJECT(&sdhci->sdhci), "sd-spec-version", 3, &error_fatal)) {
+        return;
+    }
+    if (!object_property_set_uint(OBJECT(&sdhci->sdhci), "capareg", SDHCI_CAPABILITIES,
+                                    &error_fatal)) {
+        return;
+    }
+    if (!object_property_set_uint(OBJECT(&sdhci->sdhci), "uhs", UHS_I, &error_fatal)) {
+        return;
+    }
+
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    memory_region_add_subregion(mem, base,
+                                sysbus_mmio_get_region(s, 0));
+    sysbus_connect_irq(s, 0, qdev_get_gpio_in(vms->gic, irq));
+
+    DeviceState *card = qdev_new(TYPE_SD_CARD);
+
+    qdev_prop_set_drive_err(card, "drive", blk_by_legacy_dinfo(dinfo),
+                            &error_fatal);
+    qdev_realize_and_unref(card, sdhci->bus, &error_fatal);
+
+}
+
+
 static void machvirt_init(MachineState *machine)
 {
     VirtMachineState *vms = VIRT_MACHINE(machine);
@@ -2312,6 +2354,7 @@ static void machvirt_init(MachineState *machine)
     create_uart(vms, VIRT_UART, sysmem, serial_hd(0));
     create_uart(vms, VIRT_UART_1, sysmem, serial_hd(2));
     create_i2c0(vms, sysmem);
+    create_emmc(vms, sysmem);
 
     if (vms->secure) {
         create_secure_ram(vms, secure_sysmem, secure_tag_sysmem);
