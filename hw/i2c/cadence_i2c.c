@@ -424,7 +424,7 @@ static void cadence_i2c_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
 
     dc->vmsd = &cadence_i2c_vmstate;
-    dc->reset = cadence_i2c_reset;
+    dc->legacy_reset = cadence_i2c_reset;
     dc->realize = cadence_i2c_realize;
 }
 
