@@ -419,7 +419,7 @@ static void cadence_i2c_realize(DeviceState *dev, Error **errp)
     fifo8_create(&s->fifo, FIFO_WIDTH);
 }
 
-static void cadence_i2c_class_init(ObjectClass *klass, void *data)
+static void cadence_i2c_class_init(ObjectClass *klass, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
 
